@@ -1,0 +1,7 @@
+{
+  "watch": ["routes", "models", "middleware", "config", "index.js"],
+  "ext": "js,json",
+  "ignore": ["*.log", "node_modules/*"],
+  "verbose": true,
+  "exec": "node index.js"
+}
