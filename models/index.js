@@ -92,8 +92,13 @@ const initDB = async () => {
   try {
     await sequelize.authenticate();
     console.log("Koneksi database berhasil.");
+
+    // TAMBAHKAN BARIS INI
+    await sequelize.sync();
+    console.log("Semua model berhasil disinkronkan.");
   } catch (error) {
-    console.error("Gagal terhubung ke database:", error);
+    // Perbarui pesan error agar lebih jelas
+    console.error("Gagal terhubung atau sinkronisasi database:", error);
     throw error;
   }
 };
