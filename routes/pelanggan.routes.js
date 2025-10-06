@@ -18,6 +18,7 @@ router.post(
       const {
         nama,
         nomor_hp,
+        alamat,
         status_member,
         id_cabang: id_cabang_from_body,
       } = req.body;
@@ -65,6 +66,7 @@ router.post(
       const pelangganBaru = await Pelanggan.create({
         nama,
         nomor_hp,
+        alamat,
         status_member: status_member || "Non-Member",
         id_cabang: cabangIdUntukPelanggan,
         usaha_id: usaha_id,
@@ -157,41 +159,58 @@ router.get("/:id", authenticateToken, async (req, res) => {
 router.put(
   "/:id",
   authenticateToken,
-  authorize(["owner", "admin"]),
+  authorize(["owner", "admin", "kasir"]),
   async (req, res) => {
     try {
+      // Ambil semua field yang boleh diubah dari body
+      const { nama, nomor_hp, alamat } = req.body;
+      const { usaha_id, role, id_cabang: user_cabang_id } = req.user;
+
       const pelanggan = await Pelanggan.findOne({
-        where: { id: req.params.id, usaha_id: req.user.usaha_id },
+        where: { id: req.params.id, usaha_id: usaha_id },
       });
 
       if (!pelanggan) {
         return res.status(404).json({ message: "Pelanggan tidak ditemukan." });
       }
 
-      // Validasi cabang untuk admin
-      if (
-        req.user.role === "admin" &&
-        pelanggan.id_cabang !== req.user.id_cabang
-      ) {
+      // Validasi hak akses untuk admin/kasir
+      if (role !== "owner" && pelanggan.id_cabang !== user_cabang_id) {
         return res.status(403).json({ message: "Akses ditolak." });
       }
 
-      await pelanggan.update(req.body);
-      res
-        .status(200)
-        .json({ message: "Pelanggan berhasil diupdate.", data: pelanggan });
-    } catch (error) {
-      if (error.name === "SequelizeUniqueConstraintError") {
-        return res
-          .status(400)
-          .json({ message: "Nomor HP sudah digunakan oleh pelanggan lain." });
+      // Cek duplikat nomor HP jika nomor HP-nya diubah
+      if (nomor_hp && nomor_hp !== pelanggan.nomor_hp) {
+        const existing = await Pelanggan.findOne({
+          where: { nomor_hp, usaha_id },
+        });
+        if (existing) {
+          return res.status(409).json({
+            message: "Nomor HP tersebut sudah digunakan oleh pelanggan lain.",
+          });
+        }
       }
+
+      // Update data yang dikirim
+      pelanggan.nama = nama || pelanggan.nama;
+      pelanggan.nomor_hp = nomor_hp || pelanggan.nomor_hp;
+      pelanggan.alamat = alamat;
+
+      await pelanggan.save();
+
+      res.status(200).json({
+        message: "Data pelanggan berhasil diupdate.",
+        data: pelanggan,
+      });
+    } catch (error) {
       res
         .status(500)
         .json({ message: "Gagal mengupdate pelanggan.", error: error.message });
     }
   }
 );
+
+module.exports = router;
 
 // Rute untuk MENGHAPUS pelanggan (Delete)
 router.delete(

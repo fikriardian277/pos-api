@@ -78,6 +78,28 @@ const Pengaturan = sequelize.define(
       type: DataTypes.INTEGER,
       defaultValue: 1,
     },
+
+    layanan_antar_jemput_aktif: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    batas_jarak_gratis_jemput: {
+      type: DataTypes.FLOAT,
+      defaultValue: 0,
+    },
+    biaya_jemput_jarak: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    batas_jarak_gratis_antar: {
+      type: DataTypes.FLOAT,
+      defaultValue: 0,
+    },
+    biaya_antar_jarak: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+
     // [BARU] Skema Bonus Merchandise (pengganti totebag)
     apakah_bonus_merchandise_aktif: {
       type: DataTypes.BOOLEAN,
@@ -112,6 +134,27 @@ const Pengaturan = sequelize.define(
     tampilkan_header_di_struk: {
       type: DataTypes.BOOLEAN,
       defaultValue: true,
+    },
+
+    wa_header: {
+      type: DataTypes.STRING,
+      defaultValue: "*Struk Digital*",
+    },
+    wa_struk_pembuka: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    wa_struk_penutup: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    wa_siap_diambil_pembuka: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    wa_siap_diambil_penutup: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
   },
   {

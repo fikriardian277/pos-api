@@ -34,6 +34,10 @@ const Pelanggan = sequelize.define(
       onUpdate: "CASCADE",
       onDelete: "CASCADE",
     },
+    alamat: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
   },
   {
     tableName: "pelanggan",

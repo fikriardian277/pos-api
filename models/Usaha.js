@@ -14,7 +14,11 @@ const Usaha = sequelize.define(
       allowNull: false,
       defaultValue: "free", // 'free', 'basic', 'pro'
     },
-    // Kita bisa tambahkan kolom lain nanti, seperti tanggal_berakhir
+    sudah_setup: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+    },
   },
   {
     tableName: "usaha",

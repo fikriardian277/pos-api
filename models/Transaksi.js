@@ -1,11 +1,16 @@
-// models/Transaksi.js
+// file: models/Transaksi.js
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
 
 const Transaksi = sequelize.define(
   "Transaksi",
   {
-    // Kolom yang sudah ada
+    // [FIX] Tambahkan ID sebagai Primary Key
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
     usaha_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -20,21 +25,28 @@ const Transaksi = sequelize.define(
       allowNull: false,
     },
     status_pembayaran: {
-      type: DataTypes.ENUM("Belum Lunas", "Lunas"),
+      type: DataTypes.STRING, // Ganti ENUM jadi STRING agar lebih fleksibel
       defaultValue: "Belum Lunas",
     },
     metode_pembayaran: {
-      type: DataTypes.ENUM("Cash", "QRIS"),
+      type: DataTypes.STRING,
       allowNull: true,
     },
+    // [FIX] Hapus defaultValue agar logika di API yang jadi penentu utama
     status_proses: {
-      type: DataTypes.ENUM(
-        "Diterima",
-        "Proses Cuci",
-        "Siap Diambil",
-        "Selesai"
-      ),
-      defaultValue: "Diterima",
+      type: DataTypes.STRING,
+    },
+    tipe_layanan: {
+      type: DataTypes.STRING,
+      defaultValue: "dine_in",
+    },
+    jarak_km: {
+      type: DataTypes.FLOAT,
+      defaultValue: 0,
+    },
+    biaya_layanan: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     catatan: {
       type: DataTypes.TEXT,
@@ -53,8 +65,6 @@ const Transaksi = sequelize.define(
       allowNull: false,
       references: { model: "cabang", key: "id" },
     },
-
-    // [TAMBAHKAN KOLOM KUNCI YANG HILANG INI]
     id_pelanggan: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -68,18 +78,24 @@ const Transaksi = sequelize.define(
   },
   {
     tableName: "transaksi",
+    timestamps: true, // Biasanya tabel transaksi punya timestamps (createdAt, updatedAt)
     indexes: [
       {
         unique: true,
         fields: ["usaha_id", "kode_invoice"],
       },
     ],
+    hooks: {
+      beforeCreate: (transaksi, options) => {
+        console.log("===================================");
+        console.log("CCTV MODEL: Data final sebelum INSERT ke DB:");
+        console.log(transaksi.dataValues);
+        console.log("===================================");
+      },
+    },
   }
 );
 
-// ==========================================================
-//           TAMBAHKAN BLOK ASOSIASI INI
-// ==========================================================
 Transaksi.associate = function (models) {
   // Transaksi dimiliki oleh (belongsTo)...
   Transaksi.belongsTo(models.Usaha, { foreignKey: "usaha_id" });
@@ -89,11 +105,10 @@ Transaksi.associate = function (models) {
 
   // Transaksi memiliki banyak Paket (melalui DetailTransaksi)
   Transaksi.belongsToMany(models.Paket, {
-    through: "DetailTransaksi", // Nama tabel perantara
+    through: models.DetailTransaksi, // Gunakan referensi model langsung
     foreignKey: "id_transaksi",
     otherKey: "id_paket",
   });
 };
-// ==========================================================
 
 module.exports = Transaksi;

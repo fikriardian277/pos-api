@@ -31,27 +31,26 @@ router.post("/", authenticateToken, async (req, res) => {
       metode_pembayaran,
       items,
       poin_ditukar,
+      tipe_layanan,
+      jarak_km,
       bonus_merchandise_dibawa,
       upgrade_member,
     } = req.body;
-
     const { id: id_pengguna, id_cabang, usaha_id } = req.user;
 
     const pengaturan = await Pengaturan.findByPk(usaha_id, { transaction: t });
     if (!pengaturan) throw new Error("Pengaturan usaha tidak ditemukan.");
 
     const pelanggan = await Pelanggan.findOne({
-      where: { id: id_pelanggan, usaha_id: usaha_id },
+      where: { id: id_pelanggan, usaha_id },
       transaction: t,
     });
     if (!pelanggan) throw new Error("Pelanggan tidak ditemukan.");
 
     const realItems = items.filter((item) => item.id_paket !== "member-fee");
-    if (realItems.length === 0 && !upgrade_member) {
+    if (realItems.length === 0 && !upgrade_member)
       throw new Error("Tidak ada item paket yang dipesan.");
-    }
 
-    // [FIX] Ambil semua detail paket di awal dan simpan di array baru
     let grand_total_awal = 0;
     const cartWithDetails = [];
     for (const item of realItems) {
@@ -59,21 +58,33 @@ router.post("/", authenticateToken, async (req, res) => {
         where: { id: item.id_paket, usaha_id },
       });
       if (!paket) throw new Error(`Paket ID ${item.id_paket} tidak valid.`);
-
       const subtotal = paket.harga * item.jumlah;
       grand_total_awal += subtotal;
-
       cartWithDetails.push({
         ...item,
+        satuan: paket.satuan,
+        subtotal,
         nama_paket: paket.nama_paket,
-        satuan: paket.satuan, // <-- Ambil 'satuan' di sini
-        subtotal: subtotal,
       });
     }
+    if (upgrade_member) grand_total_awal += pengaturan.biaya_membership;
 
-    if (upgrade_member) {
-      grand_total_awal += pengaturan.biaya_membership;
+    let biayaLayananTambahan = 0;
+    if (pengaturan.layanan_antar_jemput_aktif && tipe_layanan !== "dine_in") {
+      const jarak = parseFloat(jarak_km) || 0;
+      let biayaJemput = 0,
+        biayaAntar = 0;
+      if (tipe_layanan === "jemput" || tipe_layanan === "antar_jemput") {
+        if (jarak > pengaturan.batas_jarak_gratis_jemput)
+          biayaJemput = pengaturan.biaya_jemput_jarak;
+      }
+      if (tipe_layanan === "antar" || tipe_layanan === "antar_jemput") {
+        if (jarak > pengaturan.batas_jarak_gratis_antar)
+          biayaAntar = pengaturan.biaya_antar_jarak;
+      }
+      biayaLayananTambahan = biayaJemput + biayaAntar;
     }
+    grand_total_awal += biayaLayananTambahan;
 
     let final_grand_total = grand_total_awal;
     let poinDigunakanFinal = 0;
@@ -163,7 +174,14 @@ router.post("/", authenticateToken, async (req, res) => {
       final_grand_total += final_grand_total * (pengaturan.pajak_persen / 100);
     }
 
-    // Generate Invoice
+    let statusAwal = "Diterima";
+    if (tipe_layanan === "jemput" || tipe_layanan === "antar_jemput") {
+      statusAwal = "Menunggu Penjemputan";
+    }
+
+    if (pengaturan.pajak_persen > 0)
+      final_grand_total += final_grand_total * (pengaturan.pajak_persen / 100);
+
     const [counter] = await InvoiceCounter.findOrCreate({
       where: { usaha_id },
       defaults: { nomor_terakhir: 0 },
@@ -175,7 +193,6 @@ router.post("/", authenticateToken, async (req, res) => {
       nomorBaru
     ).padStart(6, "0")}`;
 
-    // Buat Transaksi & Detail
     const transaksiBaru = await Transaksi.create(
       {
         kode_invoice,
@@ -190,6 +207,10 @@ router.post("/", authenticateToken, async (req, res) => {
           status_pembayaran === "Lunas" ? metode_pembayaran : null,
         poin_digunakan: poinDigunakanFinal,
         poin_didapat: poinDidapatFinal,
+        tipe_layanan: tipe_layanan || "dine_in",
+        jarak_km: parseFloat(jarak_km) || 0,
+        biaya_layanan: biayaLayananTambahan,
+        status_proses: statusAwal, // Pastikan namanya persis 'status_proses'
       },
       { transaction: t }
     );
@@ -206,12 +227,14 @@ router.post("/", authenticateToken, async (req, res) => {
         { transaction: t }
       );
     }
+
     await t.commit();
     res
       .status(201)
       .json({ message: "Transaksi berhasil dibuat.", data: transaksiBaru });
   } catch (error) {
     await t.rollback();
+    console.error("TRANSACTION FAILED:", error);
     res
       .status(500)
       .json({ message: "Gagal membuat transaksi.", error: error.message });
@@ -221,6 +244,7 @@ router.post("/", authenticateToken, async (req, res) => {
 // Rute GET /aktif
 router.get("/aktif", authenticateToken, async (req, res) => {
   try {
+    const { search } = req.query;
     const options = {
       where: {
         status_proses: { [Op.ne]: "Selesai" },
@@ -250,6 +274,14 @@ router.get("/aktif", authenticateToken, async (req, res) => {
 
     if (req.user.role !== "owner") {
       options.where.id_cabang = req.user.id_cabang;
+    }
+
+    if (search) {
+      options.where[Op.or] = [
+        { kode_invoice: { [Op.like]: `%${search}%` } },
+        { "$Pelanggan.nama$": { [Op.like]: `%${search}%` } },
+        { "$Pelanggan.nomor_hp$": { [Op.like]: `%${search}%` } },
+      ];
     }
 
     const transaksiAktif = await Transaksi.findAll(options);
@@ -373,9 +405,11 @@ router.put("/:id/status", authenticateToken, async (req, res) => {
     }
 
     const validStatuses = [
+      "Menunggu Penjemputan", // <-- BARU
       "Diterima",
       "Proses Cuci",
       "Siap Diambil",
+      "Proses Pengantaran", // <-- BARU
       "Selesai",
     ];
     if (!validStatuses.includes(status))
@@ -460,6 +494,148 @@ router.get("/:kode_invoice", authenticateToken, async (req, res) => {
       message: "Gagal mengambil detail transaksi.",
       error: error.message,
     });
+  }
+});
+
+router.post("/generate-wa-message", authenticateToken, async (req, res) => {
+  try {
+    const { kode_invoice, tipe_pesan } = req.body; // tipe_pesan: 'struk' atau 'siap_diambil'
+    const { usaha_id } = req.user;
+
+    // 1. Ambil data lengkap transaksi, termasuk detail item
+    const transaksi = await Transaksi.findOne({
+      where: { kode_invoice, usaha_id },
+      include: [
+        {
+          model: Pelanggan,
+          attributes: ["nama", "nomor_hp", "poin", "status_member"],
+        },
+        {
+          model: Paket,
+          include: [{ model: Layanan, include: [{ model: Kategori }] }],
+        },
+      ],
+    });
+    if (!transaksi)
+      return res.status(404).json({ message: "Transaksi tidak ditemukan." });
+
+    // 2. Ambil data pengaturan
+    const pengaturan = await Pengaturan.findByPk(usaha_id);
+    if (!pengaturan)
+      return res
+        .status(404)
+        .json({ message: "Pengaturan usaha tidak ditemukan." });
+
+    // 3. Ambil bagian-bagian template dari pengaturan
+    const header = pengaturan.wa_header || "";
+    let pesanPembuka = "";
+    let pesanPenutup = "";
+
+    if (tipe_pesan === "struk") {
+      pesanPembuka = pengaturan.wa_struk_pembuka || "";
+      pesanPenutup = pengaturan.wa_struk_penutup || "";
+    } else if (tipe_pesan === "siap_diambil") {
+      pesanPembuka = pengaturan.wa_siap_diambil_pembuka || "";
+      pesanPenutup = pengaturan.wa_siap_diambil_penutup || "";
+    }
+
+    // 4. Ganti variabel di bagian yang bisa diedit
+    const totalBelanjaFormatted = transaksi.grand_total.toLocaleString("id-ID");
+    pesanPembuka = pesanPembuka
+      .replace(/{nama_pelanggan}/g, transaksi.Pelanggan.nama)
+      .replace(/{kode_invoice}/g, transaksi.kode_invoice);
+
+    pesanPenutup = pesanPenutup
+      .replace(/{nama_pelanggan}/g, transaksi.Pelanggan.nama)
+      .replace(/{kode_invoice}/g, transaksi.kode_invoice)
+      .replace(/{total_belanja}/g, totalBelanjaFormatted);
+
+    // 5. Buat "Bagian Paten" yang tidak bisa diedit
+    let bagianPaten = "";
+    if (tipe_pesan === "struk") {
+      const subtotal = transaksi.Pakets.reduce(
+        (sum, p) => sum + p.DetailTransaksi.subtotal,
+        0
+      );
+
+      let detailItems = "";
+      transaksi.Pakets.forEach((p) => {
+        detailItems += `${p.Layanan.nama_layanan} - ${p.nama_paket}\n`;
+        detailItems += `${p.DetailTransaksi.jumlah} ${
+          p.satuan
+        } x Rp ${p.harga.toLocaleString(
+          "id-ID"
+        )} = *Rp ${p.DetailTransaksi.subtotal.toLocaleString("id-ID")}*\n\n`;
+      });
+
+      bagianPaten = `
+Invoice: *${transaksi.kode_invoice}*
+Pelanggan: ${transaksi.Pelanggan.nama}
+Tanggal: ${new Date(transaksi.createdAt).toLocaleString("id-ID")}
+`;
+
+      // [BARU] Tambahkan info layanan jika bukan dine-in
+      if (transaksi.tipe_layanan !== "dine_in") {
+        const tipeLayananText = {
+          jemput: "Jemput Saja",
+          antar: "Antar Saja",
+          antar_jemput: "Jemput & Antar",
+        };
+        bagianPaten += `Layanan: ${tipeLayananText[transaksi.tipe_layanan]}\n`;
+        if (transaksi.jarak_km > 0) {
+          bagianPaten += `Jarak: ${transaksi.jarak_km} km\n`;
+        }
+      }
+
+      bagianPaten += `-----------------------
+${detailItems}
+-----------------------
+Subtotal Item: Rp ${subtotal.toLocaleString("id-ID")}
+`;
+
+      // [BARU] Tambahkan info biaya layanan jika ada
+      if (transaksi.biaya_layanan > 0) {
+        bagianPaten += `Biaya Layanan: Rp ${transaksi.biaya_layanan.toLocaleString(
+          "id-ID"
+        )}\n`;
+      }
+
+      bagianPaten += `*GRAND TOTAL: Rp ${totalBelanjaFormatted}*
+Status: *${transaksi.status_pembayaran}*`;
+      const isPoinSystemActive = pengaturan.skema_poin_aktif !== "nonaktif";
+      if (isPoinSystemActive && transaksi.Pelanggan.status_member === "Aktif") {
+        bagianPaten += `
+
+-- Info Poin --
+Poin Ditukar: -${transaksi.poin_digunakan}
+Poin Didapat: +${transaksi.poin_didapat}
+Poin Sekarang: *${transaksi.Pelanggan.poin}*`;
+      }
+    }
+
+    // 6. Jahit semua bagian menjadi satu pesan utuh
+    let pesanFinal = "";
+    if (tipe_pesan === "struk" && header) {
+      pesanFinal += `${header}\n-----------------------\n`;
+    }
+    if (pesanPembuka) {
+      pesanFinal += `${pesanPembuka}\n\n`;
+    }
+    if (bagianPaten) {
+      pesanFinal += `${bagianPaten.trim()}\n\n`;
+    }
+    if (pesanPenutup) {
+      pesanFinal += `${pesanPenutup}`;
+    }
+
+    // 7. Kirim kembali pesan yang sudah jadi
+    res.json({
+      pesan: pesanFinal.trim(),
+      nomor_hp: transaksi.Pelanggan.nomor_hp,
+    });
+  } catch (error) {
+    console.error("Gagal generate pesan WA:", error);
+    res.status(500).json({ message: "Terjadi kesalahan internal." });
   }
 });
 
