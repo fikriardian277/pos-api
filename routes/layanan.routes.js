@@ -27,9 +27,16 @@ router.get("/", authenticateToken, async (req, res) => {
     });
     res.json(layanans);
   } catch (error) {
-    // TAMBAHKAN INI UNTUK MELIHAT DETAIL ERROR DI RENDER
     console.error("!!! ERROR SAAT POST LAYANAN:", error);
 
+    // Cek apakah errornya adalah error data duplikat dari Sequelize
+    if (error.name === "SequelizeUniqueConstraintError") {
+      return res
+        .status(409)
+        .json({ message: "Nama layanan sudah ada di kategori ini." });
+    }
+
+    // Untuk semua error lainnya, baru kembalikan 500
     res
       .status(500)
       .json({ message: "Gagal membuat layanan.", error: error.message });
