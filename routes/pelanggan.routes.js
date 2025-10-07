@@ -7,85 +7,73 @@ const authorize = require("../middleware/authorize");
 const router = express.Router();
 
 // Rute untuk MENAMBAH pelanggan baru (Create)
-// file: pos-api/routes/pelanggan.routes.js
+router.post("/", authenticateToken, async (req, res) => {
+  try {
+    const {
+      nama,
+      nomor_hp,
+      alamat,
+      status_member,
+      id_cabang: id_cabang_from_body,
+    } = req.body;
+    const { id_cabang: id_cabang_from_token, usaha_id, role } = req.user;
 
-router.post(
-  "/",
-  authenticateToken,
-
-  async (req, res) => {
-    try {
-      const {
-        nama,
-        nomor_hp,
-        alamat,
-        status_member,
-        id_cabang: id_cabang_from_body,
-      } = req.body;
-      const { id_cabang: id_cabang_from_token, usaha_id, role } = req.user;
-
-      if (!nama || !nomor_hp) {
-        return res
-          .status(400)
-          .json({ message: "Nama dan Nomor HP wajib diisi." });
-      }
-
-      // [BARU] Langkah 1: Cek duplikat nomor HP di awal
-      const existingPelanggan = await Pelanggan.findOne({
-        where: { nomor_hp, usaha_id },
-      });
-
-      if (existingPelanggan) {
-        return res
-          .status(409)
-          .json({ message: "Nomor HP ini sudah terdaftar sebagai pelanggan." });
-      }
-
-      // [LAMA & SUDAH BENAR] Langkah 2: Tentukan ID Cabang berdasarkan role
-      let cabangIdUntukPelanggan;
-      if (role === "owner") {
-        cabangIdUntukPelanggan = id_cabang_from_body;
-        if (!cabangIdUntukPelanggan) {
-          return res.status(400).json({
-            message:
-              "Sebagai Owner, Anda harus memilih cabang untuk pelanggan baru.",
-          });
-        }
-      } else {
-        // Untuk admin atau kasir
-        cabangIdUntukPelanggan = id_cabang_from_token;
-        if (!cabangIdUntukPelanggan) {
-          return res.status(403).json({
-            message:
-              "Akses ditolak. Akun Anda tidak terikat pada cabang manapun.",
-          });
-        }
-      }
-
-      // Langkah 3: Buat pelanggan baru jika semua pengecekan lolos
-      const pelangganBaru = await Pelanggan.create({
-        nama,
-        nomor_hp,
-        alamat,
-        status_member: status_member || "Non-Member",
-        id_cabang: cabangIdUntukPelanggan,
-        usaha_id: usaha_id,
-      });
-
-      res.status(201).json(pelangganBaru);
-    } catch (error) {
-      // Catch block ini tetap berguna sebagai jaring pengaman terakhir
-      if (error.name === "SequelizeUniqueConstraintError") {
-        return res
-          .status(409)
-          .json({ message: "Nomor HP sudah terdaftar di usaha Anda." });
-      }
-      res
-        .status(500)
-        .json({ message: "Gagal menambah pelanggan.", error: error.message });
+    if (!nama || !nomor_hp) {
+      return res
+        .status(400)
+        .json({ message: "Nama dan Nomor HP wajib diisi." });
     }
+
+    const existingPelanggan = await Pelanggan.findOne({
+      where: { nomor_hp, usaha_id },
+    });
+
+    if (existingPelanggan) {
+      return res
+        .status(409)
+        .json({ message: "Nomor HP ini sudah terdaftar sebagai pelanggan." });
+    }
+
+    let cabangIdUntukPelanggan;
+    if (role === "owner") {
+      cabangIdUntukPelanggan = id_cabang_from_body;
+      if (!cabangIdUntukPelanggan) {
+        return res.status(400).json({
+          message:
+            "Sebagai Owner, Anda harus memilih cabang untuk pelanggan baru.",
+        });
+      }
+    } else {
+      cabangIdUntukPelanggan = id_cabang_from_token;
+      if (!cabangIdUntukPelanggan) {
+        return res.status(403).json({
+          message:
+            "Akses ditolak. Akun Anda tidak terikat pada cabang manapun.",
+        });
+      }
+    }
+
+    const pelangganBaru = await Pelanggan.create({
+      nama,
+      nomor_hp,
+      alamat,
+      status_member: status_member || "Non-Member",
+      id_cabang: cabangIdUntukPelanggan,
+      usaha_id: usaha_id,
+    });
+
+    res.status(201).json(pelangganBaru);
+  } catch (error) {
+    if (error.name === "SequelizeUniqueConstraintError") {
+      return res
+        .status(409)
+        .json({ message: "Nomor HP sudah terdaftar di usaha Anda." });
+    }
+    res
+      .status(500)
+      .json({ message: "Gagal menambah pelanggan.", error: error.message });
   }
-);
+});
 
 // Rute untuk MELIHAT SEMUA atau MENCARI pelanggan (Read)
 router.get("/", authenticateToken, async (req, res) => {
@@ -101,21 +89,20 @@ router.get("/", authenticateToken, async (req, res) => {
 
     if (search) {
       whereClause[Op.or] = [
-        { nama: { [Op.like]: `%${search}%` } },
+        { nama: { [Op.iLike]: `%${search}%` } }, // <-- PERUBAHAN DI SINI
         { nomor_hp: { [Op.like]: `%${search}%` } },
       ];
     }
 
-    // [LANGKAH 2] Tambahkan 'include' untuk mengambil data cabang
     const semuaPelanggan = await Pelanggan.findAll({
       where: whereClause,
       include: [
         {
           model: Cabang,
-          attributes: ["nama_cabang"], // Kita hanya butuh nama cabangnya
+          attributes: ["nama_cabang"],
         },
       ],
-      order: [["nama", "ASC"]], // Tambahkan order agar rapi
+      order: [["nama", "ASC"]],
     });
 
     res.status(200).json(semuaPelanggan);
@@ -130,7 +117,6 @@ router.get("/", authenticateToken, async (req, res) => {
 // Rute untuk MELIHAT SATU pelanggan berdasarkan ID (Read Single)
 router.get("/:id", authenticateToken, async (req, res) => {
   try {
-    // [FIX] Cari pelanggan berdasarkan ID DAN usaha_id
     const pelanggan = await Pelanggan.findOne({
       where: { id: req.params.id, usaha_id: req.user.usaha_id },
     });
@@ -138,7 +124,6 @@ router.get("/:id", authenticateToken, async (req, res) => {
     if (!pelanggan)
       return res.status(404).json({ message: "Pelanggan tidak ditemukan." });
 
-    // Validasi cabang (opsional tambahan, tapi bagus)
     if (
       req.user.role !== "owner" &&
       pelanggan.id_cabang !== req.user.id_cabang
@@ -162,7 +147,6 @@ router.put(
   authorize(["owner", "admin", "kasir"]),
   async (req, res) => {
     try {
-      // Ambil semua field yang boleh diubah dari body
       const { nama, nomor_hp, alamat } = req.body;
       const { usaha_id, role, id_cabang: user_cabang_id } = req.user;
 
@@ -174,12 +158,10 @@ router.put(
         return res.status(404).json({ message: "Pelanggan tidak ditemukan." });
       }
 
-      // Validasi hak akses untuk admin/kasir
       if (role !== "owner" && pelanggan.id_cabang !== user_cabang_id) {
         return res.status(403).json({ message: "Akses ditolak." });
       }
 
-      // Cek duplikat nomor HP jika nomor HP-nya diubah
       if (nomor_hp && nomor_hp !== pelanggan.nomor_hp) {
         const existing = await Pelanggan.findOne({
           where: { nomor_hp, usaha_id },
@@ -191,7 +173,6 @@ router.put(
         }
       }
 
-      // Update data yang dikirim
       pelanggan.nama = nama || pelanggan.nama;
       pelanggan.nomor_hp = nomor_hp || pelanggan.nomor_hp;
       pelanggan.alamat = alamat;
@@ -210,8 +191,6 @@ router.put(
   }
 );
 
-module.exports = router;
-
 // Rute untuk MENGHAPUS pelanggan (Delete)
 router.delete(
   "/:id",
@@ -219,7 +198,6 @@ router.delete(
   authorize(["owner", "admin"]),
   async (req, res) => {
     try {
-      // [FIX] Cari pelanggan berdasarkan ID DAN usaha_id sebelum dihapus
       const pelanggan = await Pelanggan.findOne({
         where: { id: req.params.id, usaha_id: req.user.usaha_id },
       });
@@ -227,7 +205,6 @@ router.delete(
       if (!pelanggan)
         return res.status(404).json({ message: "Pelanggan tidak ditemukan." });
 
-      // Validasi cabang untuk admin
       if (
         req.user.role === "admin" &&
         pelanggan.id_cabang !== req.user.id_cabang
@@ -238,7 +215,6 @@ router.delete(
       await pelanggan.destroy();
       res.status(200).json({ message: "Pelanggan berhasil dihapus." });
     } catch (error) {
-      // Jika error karena pelanggan masih punya transaksi (foreign key constraint)
       if (error.name === "SequelizeForeignKeyConstraintError") {
         return res.status(400).json({
           message:
