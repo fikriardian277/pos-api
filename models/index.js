@@ -39,10 +39,18 @@ InvoiceCounter.belongsTo(Usaha, { foreignKey: "usaha_id" });
 // Definisikan semua hubungan antar tabel
 
 // Hubungan Struktur Layanan Baru
-Kategori.hasMany(Layanan, { foreignKey: "id_kategori", onDelete: "CASCADE" });
+Kategori.hasMany(Layanan, {
+  as: "layanans",
+  foreignKey: "id_kategori",
+  onDelete: "CASCADE",
+});
 Layanan.belongsTo(Kategori, { foreignKey: "id_kategori" });
 
-Layanan.hasMany(Paket, { foreignKey: "id_layanan", onDelete: "CASCADE" });
+Layanan.hasMany(Paket, {
+  as: "pakets",
+  foreignKey: "id_layanan",
+  onDelete: "CASCADE",
+});
 Paket.belongsTo(Layanan, { foreignKey: "id_layanan" });
 
 // Hubungan Cabang

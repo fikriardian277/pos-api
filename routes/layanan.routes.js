@@ -14,14 +14,16 @@ router.get("/", authenticateToken, async (req, res) => {
       include: [
         {
           model: Layanan,
+          as: "layanans", // <-- Gunakan alias
           include: [
             {
               model: Paket,
+              as: "pakets", // <-- Gunakan alias
             },
           ],
         },
       ],
-      order: [["createdAt", "ASC"]], // Tambahkan order agar konsisten
+      order: [["createdAt", "ASC"]],
     });
     res.json(layanans);
   } catch (error) {
