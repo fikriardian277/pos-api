@@ -27,6 +27,9 @@ router.get("/", authenticateToken, async (req, res) => {
     });
     res.json(layanans);
   } catch (error) {
+    // TAMBAHKAN BARIS INI UNTUK MELIHAT ERROR DI LOG RENDER
+    console.error("!!! ERROR SAAT GET LAYANAN:", error);
+
     res
       .status(500)
       .json({ message: "Gagal mengambil data layanan.", error: error.message });
