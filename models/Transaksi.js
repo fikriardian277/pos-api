@@ -36,6 +36,14 @@ const Transaksi = sequelize.define(
     status_proses: {
       type: DataTypes.STRING,
     },
+    upgrade_member: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    biaya_membership_upgrade: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0,
+    },
     tipe_layanan: {
       type: DataTypes.STRING,
       defaultValue: "dine_in",
