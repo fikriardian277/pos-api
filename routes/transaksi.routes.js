@@ -20,8 +20,6 @@ const authorize = require("../middleware/authorize");
 const router = express.Router();
 
 // Rute untuk MEMBUAT transaksi baru
-// Di file: routes/transaksi.routes.js
-
 router.post("/", authenticateToken, async (req, res) => {
   const t = await sequelize.transaction();
   try {
@@ -52,27 +50,20 @@ router.post("/", authenticateToken, async (req, res) => {
     if (realItems.length === 0 && !upgrade_member)
       throw new Error("Tidak ada item paket yang dipesan.");
 
-    let subtotal_paket = 0; // [FIX] Gunakan variabel terpisah untuk subtotal paket
+    let subtotal_paket = 0;
     const cartWithDetails = [];
     for (const item of realItems) {
       const paket = await Paket.findOne({
         where: { id: item.id_paket, usaha_id },
+        transaction: t,
       });
       if (!paket) throw new Error(`Paket ID ${item.id_paket} tidak valid.`);
       const subtotal = paket.harga * item.jumlah;
       subtotal_paket += subtotal;
-      cartWithDetails.push({
-        ...item,
-        satuan: paket.satuan,
-        subtotal,
-        nama_paket: paket.nama_paket,
-      });
+      cartWithDetails.push({ ...item, satuan: paket.satuan, subtotal });
     }
 
-    let biayaUpgradeMember = 0;
-    if (upgrade_member) {
-      biayaUpgradeMember = pengaturan.biaya_membership;
-    }
+    const biayaUpgradeMember = upgrade_member ? pengaturan.biaya_membership : 0;
 
     let biayaLayananTambahan = 0;
     if (pengaturan.layanan_antar_jemput_aktif && tipe_layanan !== "dine_in") {
@@ -113,6 +104,7 @@ router.post("/", authenticateToken, async (req, res) => {
       }
 
       if (pelangganBolehDapatPoin) {
+        // --- A. LOGIKA PENUKARAN POIN (UNIVERSAL) ---
         if (poin_ditukar && poin_ditukar > 0) {
           if (pelanggan.poin < poin_ditukar) {
             throw new Error("Poin pelanggan tidak mencukupi.");
@@ -130,7 +122,6 @@ router.post("/", authenticateToken, async (req, res) => {
           }
           final_grand_total -= diskon_poin;
           poinDigunakanFinal = poin_ditukar;
-          diskonFinal = diskon_poin;
         }
 
         // --- B. LOGIKA MENDAPATKAN POIN (SESUAI SKEMA) ---
@@ -178,14 +169,13 @@ router.post("/", authenticateToken, async (req, res) => {
       await pelanggan.save({ transaction: t });
     }
 
-    if (pengaturan.pajak_persen > 0) {
-      final_grand_total += final_grand_total * (pengaturan.pajak_persen / 100);
-    }
-
     let statusAwal = "Diterima";
     if (tipe_layanan === "jemput" || tipe_layanan === "antar_jemput") {
       statusAwal = "Menunggu Penjemputan";
     }
+
+    if (pengaturan.pajak_persen > 0)
+      final_grand_total += final_grand_total * (pengaturan.pajak_persen / 100);
 
     const [counter] = await InvoiceCounter.findOrCreate({
       where: { usaha_id },
@@ -205,8 +195,8 @@ router.post("/", authenticateToken, async (req, res) => {
         id_pengguna,
         id_cabang,
         usaha_id,
-        subtotal: subtotal_paket, // [FIX] Simpan subtotal dari paket
-        diskon: diskonFinal, // [FIX] Simpan nilai diskon
+        subtotal: subtotal_paket,
+        diskon: diskonFinal,
         grand_total: Math.round(final_grand_total),
         catatan,
         status_pembayaran,
@@ -218,7 +208,6 @@ router.post("/", authenticateToken, async (req, res) => {
         jarak_km: parseFloat(jarak_km) || 0,
         biaya_layanan: biayaLayananTambahan,
         status_proses: statusAwal,
-        // [FIX] Simpan status dan biaya upgrade member
         upgrade_member: upgrade_member || false,
         biaya_membership_upgrade: biayaUpgradeMember,
       },
@@ -471,9 +460,8 @@ router.get("/:kode_invoice", authenticateToken, async (req, res) => {
         { model: Pengguna, attributes: ["nama_lengkap"] },
         {
           model: Cabang,
-          attributes: ["nama_cabang", "alamat_cabang", "nomor_telepon"],
+          attributes: ["nama_cabang"],
         },
-        { model: Usaha, attributes: ["nama_usaha", "struk_footer_text"] },
         {
           model: Paket,
           attributes: ["nama_paket", "harga", "satuan"],
