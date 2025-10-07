@@ -20,8 +20,8 @@ const PORT = process.env.PORT || 3000;
 // 3. KONFIGURASI & MIDDLEWARE (Urutan di sini PENTING!)
 // --------------------------------
 const corsOptions = {
-  origin: "http://localhost:5173", // Hanya izinkan frontend-mu
-  credentials: true, // Izinkan pengiriman cookie
+  origin: [process.env.FRONTEND_URL, "http://localhost:5173"],
+  credentials: true,
 };
 
 app.use(cors(corsOptions));
