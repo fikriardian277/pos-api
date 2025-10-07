@@ -187,9 +187,6 @@ router.post("/", authenticateToken, async (req, res) => {
       statusAwal = "Menunggu Penjemputan";
     }
 
-    if (pengaturan.pajak_persen > 0)
-      final_grand_total += final_grand_total * (pengaturan.pajak_persen / 100);
-
     const [counter] = await InvoiceCounter.findOrCreate({
       where: { usaha_id },
       defaults: { nomor_terakhir: 0 },
@@ -208,8 +205,8 @@ router.post("/", authenticateToken, async (req, res) => {
         id_pengguna,
         id_cabang,
         usaha_id,
-        subtotal: subtotal_paket,
-        diskon: diskonFinal,
+        subtotal: subtotal_paket, // [FIX] Simpan subtotal dari paket
+        diskon: diskonFinal, // [FIX] Simpan nilai diskon
         grand_total: Math.round(final_grand_total),
         catatan,
         status_pembayaran,
@@ -220,7 +217,8 @@ router.post("/", authenticateToken, async (req, res) => {
         tipe_layanan: tipe_layanan || "dine_in",
         jarak_km: parseFloat(jarak_km) || 0,
         biaya_layanan: biayaLayananTambahan,
-        status_proses: statusAwal, // Pastikan namanya persis 'status_proses'
+        status_proses: statusAwal,
+        // [FIX] Simpan status dan biaya upgrade member
         upgrade_member: upgrade_member || false,
         biaya_membership_upgrade: biayaUpgradeMember,
       },
