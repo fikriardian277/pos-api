@@ -10,6 +10,7 @@ const {
   Pelanggan,
   Pengguna,
   Cabang,
+  Usaha,
   InvoiceCounter,
   Pengaturan,
 } = require("../models");
@@ -51,7 +52,7 @@ router.post("/", authenticateToken, async (req, res) => {
     if (realItems.length === 0 && !upgrade_member)
       throw new Error("Tidak ada item paket yang dipesan.");
 
-    let grand_total_awal = 0;
+    let subtotal_paket = 0; // [FIX] Gunakan variabel terpisah untuk subtotal paket
     const cartWithDetails = [];
     for (const item of realItems) {
       const paket = await Paket.findOne({
@@ -59,7 +60,7 @@ router.post("/", authenticateToken, async (req, res) => {
       });
       if (!paket) throw new Error(`Paket ID ${item.id_paket} tidak valid.`);
       const subtotal = paket.harga * item.jumlah;
-      grand_total_awal += subtotal;
+      subtotal_paket += subtotal;
       cartWithDetails.push({
         ...item,
         satuan: paket.satuan,
@@ -67,7 +68,11 @@ router.post("/", authenticateToken, async (req, res) => {
         nama_paket: paket.nama_paket,
       });
     }
-    if (upgrade_member) grand_total_awal += pengaturan.biaya_membership;
+
+    let biayaUpgradeMember = 0;
+    if (upgrade_member) {
+      biayaUpgradeMember = pengaturan.biaya_membership;
+    }
 
     let biayaLayananTambahan = 0;
     if (pengaturan.layanan_antar_jemput_aktif && tipe_layanan !== "dine_in") {
@@ -84,11 +89,14 @@ router.post("/", authenticateToken, async (req, res) => {
       }
       biayaLayananTambahan = biayaJemput + biayaAntar;
     }
-    grand_total_awal += biayaLayananTambahan;
+
+    let grand_total_awal =
+      subtotal_paket + biayaUpgradeMember + biayaLayananTambahan;
 
     let final_grand_total = grand_total_awal;
     let poinDigunakanFinal = 0;
     let poinDidapatFinal = 0;
+    let diskonFinal = 0;
 
     if (pengaturan.skema_poin_aktif !== "nonaktif") {
       let pelangganBolehDapatPoin = false;
@@ -105,7 +113,6 @@ router.post("/", authenticateToken, async (req, res) => {
       }
 
       if (pelangganBolehDapatPoin) {
-        // --- A. LOGIKA PENUKARAN POIN (UNIVERSAL) ---
         if (poin_ditukar && poin_ditukar > 0) {
           if (pelanggan.poin < poin_ditukar) {
             throw new Error("Poin pelanggan tidak mencukupi.");
@@ -123,6 +130,7 @@ router.post("/", authenticateToken, async (req, res) => {
           }
           final_grand_total -= diskon_poin;
           poinDigunakanFinal = poin_ditukar;
+          diskonFinal = diskon_poin;
         }
 
         // --- B. LOGIKA MENDAPATKAN POIN (SESUAI SKEMA) ---
@@ -200,6 +208,8 @@ router.post("/", authenticateToken, async (req, res) => {
         id_pengguna,
         id_cabang,
         usaha_id,
+        subtotal: subtotal_paket,
+        diskon: diskonFinal,
         grand_total: Math.round(final_grand_total),
         catatan,
         status_pembayaran,
@@ -211,6 +221,8 @@ router.post("/", authenticateToken, async (req, res) => {
         jarak_km: parseFloat(jarak_km) || 0,
         biaya_layanan: biayaLayananTambahan,
         status_proses: statusAwal, // Pastikan namanya persis 'status_proses'
+        upgrade_member: upgrade_member || false,
+        biaya_membership_upgrade: biayaUpgradeMember,
       },
       { transaction: t }
     );
@@ -461,8 +473,9 @@ router.get("/:kode_invoice", authenticateToken, async (req, res) => {
         { model: Pengguna, attributes: ["nama_lengkap"] },
         {
           model: Cabang,
-          attributes: ["nama_cabang"],
+          attributes: ["nama_cabang", "alamat_cabang", "nomor_telepon"],
         },
+        { model: Usaha, attributes: ["nama_usaha", "struk_footer_text"] },
         {
           model: Paket,
           attributes: ["nama_paket", "harga", "satuan"],
