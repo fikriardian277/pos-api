@@ -21,7 +21,7 @@ const Kategori = sequelize.define(
   },
   {
     tableName: "kategori",
-    timestamps: false,
+
     indexes: [
       // <-- TAMBAHKAN
       {
