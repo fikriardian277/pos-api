@@ -102,7 +102,7 @@ const initDB = async () => {
     console.log("Koneksi database berhasil.");
 
     // TAMBAHKAN BARIS INI
-    await sequelize.sync();
+    await sequelize.sync({ alter: true });
     console.log("Semua model berhasil disinkronkan.");
   } catch (error) {
     // Perbarui pesan error agar lebih jelas
