@@ -228,9 +228,32 @@ router.post("/", authenticateToken, async (req, res) => {
     }
 
     await t.commit();
+    const transaksiLengkap = await Transaksi.findOne({
+      where: { id: transaksiBaru.id },
+      include: [
+        {
+          model: Pelanggan,
+          attributes: ["nama", "nomor_hp", "poin", "status_member"],
+        },
+        { model: Pengguna, attributes: ["nama_lengkap"] },
+        {
+          model: Cabang,
+          attributes: ["nama_cabang", "alamat_cabang", "nomor_telepon"],
+        },
+        { model: Usaha, attributes: ["nama_usaha", "struk_footer_text"] },
+        {
+          model: Paket,
+          attributes: ["nama_paket", "harga", "satuan"],
+          through: { attributes: ["jumlah", "subtotal"] },
+        },
+      ],
+    });
+
+    // [UBAH RESPON JSON]
+    // Kirim data yang sudah lengkap, bukan yang 'polos' lagi
     res
       .status(201)
-      .json({ message: "Transaksi berhasil dibuat.", data: transaksiBaru });
+      .json({ message: "Transaksi berhasil dibuat.", data: transaksiLengkap });
   } catch (error) {
     await t.rollback();
     console.error("TRANSACTION FAILED:", error);
